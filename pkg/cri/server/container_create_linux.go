@@ -270,8 +270,10 @@ func (c *criService) containerSpec(
 		specOpts = append(specOpts, customopts.WithAnnotation(pKey, pValue))
 	}
 
-	specOpts = append(specOpts, customopts.WithPodNamespaces(securityContext, sandboxPid))
-
+	// Default PID namespace is the sandbox PID.
+	targetPid := sandboxPid
+	// If the container targets another container's PID namespace,
+	// set targetPid to the PID of that container.
 	if securityContext.GetNamespaceOptions().GetPid() == runtime.NamespaceMode_TARGET {
 		targetContainerID := securityContext.GetNamespaceOptions().TargetId
 		targetContainer, err := c.containerStore.Get(targetContainerID)
@@ -288,19 +290,12 @@ func (c *criService) containerSpec(
 			return nil, errors.Errorf("target container is in state %s", state)
 		}
 
-		targetPid := status.Pid
-
-		// Overwrite the PID namespace with the namespace of the target container.
-		specOpts = append(specOpts, oci.WithLinuxNamespace(
-			runtimespec.LinuxNamespace{
-				Type: runtimespec.PIDNamespace,
-				Path: customopts.GetPIDNamespace(targetPid),
-			}),
-		)
+		targetPid = status.Pid
 	}
 
 	specOpts = append(specOpts,
 		customopts.WithOOMScoreAdj(config, c.config.RestrictOOMScoreAdj),
+		customopts.WithPodNamespaces(securityContext, sandboxPid, targetPid),
 		customopts.WithSupplementalGroups(supplementalGroups),
 		customopts.WithAnnotation(annotations.ContainerType, annotations.ContainerTypeContainer),
 		customopts.WithAnnotation(annotations.SandboxID, sandboxID),
